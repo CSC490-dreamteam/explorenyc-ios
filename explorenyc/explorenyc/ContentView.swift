@@ -26,11 +26,15 @@ struct ContentView: View {
                     url: siteURL,
                     onEdgeColorsChange: { topColor, bottomColor in
                         if !topBarColor.isVisuallyClose(to: topColor) {
-                            topBarColor = topColor
+                            //withAnimation(.easeInOut(duration: 0.18)) {
+                                topBarColor = topColor
+                            //}
                         }
 
                         if !bottomBarColor.isVisuallyClose(to: bottomColor) {
-                            bottomBarColor = bottomColor
+                            //withAnimation(.easeInOut(duration: 0.18)) {
+                                bottomBarColor = bottomColor
+                            //}
                         }
                     }
                 )
@@ -74,6 +78,12 @@ private struct WebView: UIViewRepresentable {
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.scrollView.contentInsetAdjustmentBehavior = .never
+        webView.scrollView.bounces = false
+        webView.scrollView.alwaysBounceVertical = false
+        webView.scrollView.alwaysBounceHorizontal = false
+        webView.scrollView.pinchGestureRecognizer?.isEnabled = false
+        webView.scrollView.maximumZoomScale = 1
+        webView.scrollView.minimumZoomScale = 1
         webView.allowsBackForwardNavigationGestures = true
         webView.navigationDelegate = context.coordinator
         webView.isOpaque = false
@@ -94,10 +104,26 @@ private struct WebView: UIViewRepresentable {
     private func makeUserContentController(for coordinator: Coordinator) -> WKUserContentController {
         let controller = WKUserContentController()
         controller.add(coordinator, name: Coordinator.messageHandlerName)
+        controller.addUserScript(WKUserScript(source: Self.viewportScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         controller.addUserScript(WKUserScript(source: Self.edgeColorScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         return controller
     }
-    
+
+    private static let viewportScript = #"""
+    (function() {
+        const content = "width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no";
+        let viewport = document.querySelector('meta[name="viewport"]');
+
+        if (!viewport) {
+            viewport = document.createElement("meta");
+            viewport.name = "viewport";
+            document.head.appendChild(viewport);
+        }
+
+        viewport.setAttribute("content", content);
+    })();
+    """#
+
     private static let edgeColorScript = #"""
     (function() {
         const handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.edgeColors;
@@ -137,7 +163,7 @@ private struct WebView: UIViewRepresentable {
         }
 
         let state = { isScheduled: false, timeoutID: null };
-        function scheduleSend() {
+        function scheduleSend(delay = 120) {
             if (state.timeoutID !== null) {
                 window.clearTimeout(state.timeoutID);
             }
@@ -150,35 +176,42 @@ private struct WebView: UIViewRepresentable {
                 window.requestAnimationFrame(function() {
                     state.isScheduled = false;
                 });
-            }, 120);
+            }, delay);
+        }
+
+        function sendSoon() {
+            scheduleSend(0);
         }
 
         window.addEventListener("scroll", scheduleSend, { passive: true });
         window.addEventListener("resize", scheduleSend);
-        window.addEventListener("load", scheduleSend);
-        document.addEventListener("DOMContentLoaded", scheduleSend);
-        document.addEventListener("focusin", scheduleSend);
-        document.addEventListener("focusout", scheduleSend);
-        document.addEventListener("transitionend", scheduleSend, true);
+        window.addEventListener("load", sendSoon);
+        document.addEventListener("DOMContentLoaded", sendSoon);
+        document.addEventListener("focusin", sendSoon);
+        document.addEventListener("focusout", sendSoon);
+        document.addEventListener("transitionrun", sendSoon, true);
+        document.addEventListener("transitionend", sendSoon, true);
+        document.addEventListener("animationstart", sendSoon, true);
+        document.addEventListener("animationend", sendSoon, true);
 
         if (document.documentElement) {
-            new MutationObserver(scheduleSend).observe(document.documentElement, {
+            new MutationObserver(sendSoon).observe(document.documentElement, {
                 attributes: true,
                 attributeFilter: ["class", "style"]
             });
         }
 
         if (document.body) {
-            new MutationObserver(scheduleSend).observe(document.body, {
+            new MutationObserver(sendSoon).observe(document.body, {
                 attributes: true,
                 attributeFilter: ["class", "style"]
             });
         }
 
-        scheduleSend();
-        window.setTimeout(scheduleSend, 300);
-        window.setTimeout(scheduleSend, 1000);
-        window.setInterval(scheduleSend, 750);
+        sendSoon();
+        window.setTimeout(sendSoon, 1);
+        window.setTimeout(sendSoon, 500);
+        window.setInterval(function() { scheduleSend(60); }, 750);
     })();
     """#
 
